@@ -81,12 +81,29 @@ class CartItemIn(BaseModel):
     ends_at: datetime
 
 
+class SlotHoldCreate(BaseModel):
+    court_id: int
+    starts_at: datetime
+    ends_at: datetime
+    session_id: str = Field(min_length=8, max_length=64)
+
+
+class SlotHoldOut(BaseModel):
+    court_id: int
+    starts_at: datetime
+    ends_at: datetime
+    session_id: str
+    expires_at: datetime
+    ttl_seconds: int = 60
+
+
 class CartBookingCreate(BaseModel):
     items: list[CartItemIn] = Field(min_length=1)
     customer_name: str = Field(min_length=2, max_length=200)
     customer_phone: str = Field(min_length=6, max_length=40)
     customer_email: str = Field(default="", max_length=200)
     customer_notes: str = Field(default="", max_length=500)
+    session_id: str = Field(default="", max_length=64)
 
 
 class CartBookingOut(BaseModel):

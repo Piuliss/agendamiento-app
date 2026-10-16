@@ -77,6 +77,24 @@ class Court(Base):
     __table_args__ = (UniqueConstraint("complex_id", "name", name="uq_court_name_per_complex"),)
 
 
+class SlotHold(Base):
+    """Bloqueo corto (60s) mientras el cliente elige en el modal."""
+
+    __tablename__ = "slot_holds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    complex_id: Mapped[int] = mapped_column(ForeignKey("complexes.id"), nullable=False)
+    court_id: Mapped[int] = mapped_column(ForeignKey("courts.id"), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("court_id", "starts_at", "ends_at", name="uq_slot_hold_interval"),
+    )
+
+
 class Booking(Base):
     __tablename__ = "bookings"
 

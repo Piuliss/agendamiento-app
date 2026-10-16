@@ -87,6 +87,15 @@ export type ComplexAdmin = {
   courts: Court[];
 };
 
+export type SlotHoldResult = {
+  court_id: number;
+  starts_at: string;
+  ends_at: string;
+  session_id: string;
+  expires_at: string;
+  ttl_seconds: number;
+};
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -117,10 +126,39 @@ export const api = {
     request<CalendarDay[]>(
       `/api/public/complexes/${slug}/calendar?court_id=${courtId}&from=${from}&days=14`,
     ),
-  getCourtsAvailability: (slug: string, startsAt: string, endsAt: string) =>
-    request<CourtAvailability[]>(
-      `/api/public/complexes/${slug}/courts-availability?starts_at=${encodeURIComponent(startsAt)}&ends_at=${encodeURIComponent(endsAt)}`,
-    ),
+  getCourtsAvailability: (slug: string, startsAt: string, endsAt: string, sessionId?: string) => {
+    const q = new URLSearchParams({
+      starts_at: startsAt,
+      ends_at: endsAt,
+    });
+    if (sessionId) q.set('session_id', sessionId);
+    return request<CourtAvailability[]>(
+      `/api/public/complexes/${slug}/courts-availability?${q.toString()}`,
+    );
+  },
+  acquireHold: (
+    slug: string,
+    body: { court_id: number; starts_at: string; ends_at: string; session_id: string },
+  ) =>
+    request<SlotHoldResult>(`/api/public/complexes/${slug}/holds`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  releaseHolds: (
+    slug: string,
+    sessionId: string,
+    interval?: { court_id: number; starts_at: string; ends_at: string },
+  ) => {
+    const q = new URLSearchParams({ session_id: sessionId });
+    if (interval) {
+      q.set('court_id', String(interval.court_id));
+      q.set('starts_at', interval.starts_at);
+      q.set('ends_at', interval.ends_at);
+    }
+    return fetch(`${API_BASE}/api/public/complexes/${slug}/holds?${q.toString()}`, {
+      method: 'DELETE',
+    });
+  },
   submitCart: (slug: string, body: Record<string, unknown>) =>
     request<CartResult>(`/api/public/complexes/${slug}/cart`, {
       method: 'POST',

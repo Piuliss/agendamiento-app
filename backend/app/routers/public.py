@@ -18,10 +18,18 @@ from app.schemas import (
     ComplexScheduleOut,
     CourtAvailabilityOut,
     CourtOut,
+    SlotHoldCreate,
+    SlotHoldOut,
 )
 from app.services.availability import fully_busy_intervals_for_complex, is_booking_allowed
 from app.services.batch_booking import create_public_cart
 from app.services.complex_rules import published_courts
+from app.services.holds import (
+    HOLD_SECONDS,
+    acquire_hold,
+    release_hold_interval,
+    release_session_holds,
+)
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
@@ -129,6 +137,7 @@ def courts_availability(
     slug: str,
     starts_at: datetime = Query(...),
     ends_at: datetime = Query(...),
+    session_id: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
 ):
     complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
@@ -138,12 +147,64 @@ def courts_availability(
     result: list[CourtAvailabilityOut] = []
     for court in courts:
         ok = is_booking_allowed(
-            db, complex_, court.id, starts_at, ends_at, for_public=True
+            db,
+            complex_,
+            court.id,
+            starts_at,
+            ends_at,
+            for_public=True,
+            holding_session_id=session_id,
         )
         result.append(
             CourtAvailabilityOut(court_id=court.id, name=court.name, available=ok)
         )
     return result
+
+
+@router.post("/complexes/{slug}/holds", response_model=SlotHoldOut)
+def create_slot_hold(slug: str, body: SlotHoldCreate, db: Session = Depends(get_db)):
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
+    if not complex_:
+        raise HTTPException(status_code=404, detail="Complejo no encontrado")
+    try:
+        hold = acquire_hold(
+            db,
+            complex_,
+            body.court_id,
+            body.starts_at,
+            body.ends_at,
+            body.session_id.strip(),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return SlotHoldOut(
+        court_id=hold.court_id,
+        starts_at=hold.starts_at,
+        ends_at=hold.ends_at,
+        session_id=hold.session_id,
+        expires_at=hold.expires_at,
+        ttl_seconds=HOLD_SECONDS,
+    )
+
+
+@router.delete("/complexes/{slug}/holds", status_code=204)
+def delete_slot_holds(
+    slug: str,
+    session_id: str = Query(..., min_length=8, max_length=64),
+    court_id: int | None = Query(default=None),
+    starts_at: datetime | None = Query(default=None),
+    ends_at: datetime | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
+    if not complex_:
+        raise HTTPException(status_code=404, detail="Complejo no encontrado")
+    sid = session_id.strip()
+    if court_id is not None and starts_at is not None and ends_at is not None:
+        release_hold_interval(db, court_id, starts_at, ends_at, sid)
+    else:
+        release_session_holds(db, sid)
+    return None
 
 
 @router.get("/complexes/{slug}/calendar", response_model=list[CalendarDayOut])
@@ -201,7 +262,10 @@ async def create_cart(slug: str, body: CartBookingCreate, db: Session = Depends(
         "notes": (body.customer_notes or "").strip(),
     }
     try:
-        bookings, wa, msg = await create_public_cart(db, complex_, items, contact)
+        session_id = (body.session_id or "").strip() or None
+        bookings, wa, msg = await create_public_cart(
+            db, complex_, items, contact, session_id=session_id
+        )
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     return CartBookingOut(

@@ -4,7 +4,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Booking, BookingStatus, CalendarBlock, Complex, Court
+from app.models import Booking, BookingStatus, CalendarBlock, Complex, Court, SlotHold
 
 
 def _combine(day: date, t: time) -> datetime:
@@ -107,6 +107,34 @@ def available_slots_for_court(
     return available
 
 
+def _foreign_holds_block(
+    db: Session,
+    complex_id: int,
+    court_id: int,
+    starts_at: datetime,
+    ends_at: datetime,
+    holding_session_id: str | None,
+) -> bool:
+    from app.services.holds import purge_expired_holds
+
+    purge_expired_holds(db)
+    now = datetime.utcnow()
+    holds = db.scalars(
+        select(SlotHold).where(
+            SlotHold.complex_id == complex_id,
+            SlotHold.court_id == court_id,
+            SlotHold.starts_at == starts_at,
+            SlotHold.ends_at == ends_at,
+            SlotHold.expires_at > now,
+        )
+    ).all()
+    for h in holds:
+        if holding_session_id and h.session_id == holding_session_id:
+            continue
+        return True
+    return False
+
+
 def assert_booking_allowed(
     db: Session,
     complex_: Complex,
@@ -116,6 +144,7 @@ def assert_booking_allowed(
     exclude_booking_id: int | None = None,
     *,
     for_public: bool = True,
+    holding_session_id: str | None = None,
 ) -> None:
     from app.services.complex_rules import is_court_published
     from app.services.schedule import assert_in_public_window, assert_in_teacher_window
@@ -154,6 +183,10 @@ def assert_booking_allowed(
                 continue
         if bookings_overlap(starts_at, ends_at, b_start, b_end):
             raise ValueError("El horario ya no está disponible")
+    if _foreign_holds_block(
+        db, complex_.id, court_id, starts_at, ends_at, holding_session_id
+    ):
+        raise ValueError("Turno reservado temporalmente por otro usuario")
 
 
 def is_booking_allowed(
@@ -164,10 +197,17 @@ def is_booking_allowed(
     ends_at: datetime,
     *,
     for_public: bool = True,
+    holding_session_id: str | None = None,
 ) -> bool:
     try:
         assert_booking_allowed(
-            db, complex_, court_id, starts_at, ends_at, for_public=for_public
+            db,
+            complex_,
+            court_id,
+            starts_at,
+            ends_at,
+            for_public=for_public,
+            holding_session_id=holding_session_id,
         )
         return True
     except ValueError:
