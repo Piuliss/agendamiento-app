@@ -8,6 +8,9 @@ from app.models import Complex, Court, Organization, Teacher
 def ensure_demo_data(db: Session) -> Complex:
     existing = db.scalar(select(Complex).where(Complex.slug == "demo"))
     if existing:
+        if existing.published_courts_count < 2:
+            existing.published_courts_count = 2
+            db.commit()
         _ensure_teacher(db, existing)
         return existing
     org = Organization(name="Asociación Demo")
@@ -20,7 +23,7 @@ def ensure_demo_data(db: Session) -> Complex:
         whatsapp_number="595981234567",
         contact_email="reservas@ejemplo.com",
         public_hours_start=__import__("datetime").time(17, 0),
-        published_courts_count=1,
+        published_courts_count=2,
     )
     db.add(complex_)
     db.flush()

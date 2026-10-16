@@ -29,6 +29,8 @@ export type BusyInterval = {
 
 export type CalendarDay = { date: string; court_id: number; busy: BusyInterval[] };
 
+export type CourtAvailability = { court_id: number; name: string; available: boolean };
+
 export type CartItem = {
   court_id: number;
   court_name: string;
@@ -93,9 +95,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   getComplex: (slug: string) => request<ComplexPublic>(`/api/public/complexes/${slug}`),
+  getCalendarBusy: (slug: string, from: string) =>
+    request<{ busy: BusyInterval[] }>(
+      `/api/public/complexes/${slug}/calendar-busy?from=${from}&days=14`,
+    ),
   getCalendar: (slug: string, courtId: number, from: string) =>
     request<CalendarDay[]>(
       `/api/public/complexes/${slug}/calendar?court_id=${courtId}&from=${from}&days=14`,
+    ),
+  getCourtsAvailability: (slug: string, startsAt: string, endsAt: string) =>
+    request<CourtAvailability[]>(
+      `/api/public/complexes/${slug}/courts-availability?starts_at=${encodeURIComponent(startsAt)}&ends_at=${encodeURIComponent(endsAt)}`,
     ),
   submitCart: (slug: string, body: Record<string, unknown>) =>
     request<CartResult>(`/api/public/complexes/${slug}/cart`, {

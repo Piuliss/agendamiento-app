@@ -8,14 +8,16 @@ from app.database import get_db
 from app.models import Booking, BookingStatus, Complex, Court
 from app.schemas import (
     BusyIntervalOut,
+    CalendarBusyOut,
     CalendarDayOut,
     CartBookingCreate,
     CartBookingOut,
     ComplexPublicOut,
     ComplexScheduleOut,
+    CourtAvailabilityOut,
     CourtOut,
 )
-from app.services.availability import get_busy_intervals_for_court
+from app.services.availability import fully_busy_intervals_for_complex, is_booking_allowed
 from app.services.batch_booking import create_public_cart
 from app.services.complex_rules import published_courts
 
@@ -50,6 +52,53 @@ def get_complex_public(slug: str, db: Session = Depends(get_db)):
         schedule=_complex_schedule(complex_),
         courts=[CourtOut.model_validate(c) for c in courts],
     )
+
+
+@router.get("/complexes/{slug}/calendar-busy", response_model=CalendarBusyOut)
+def get_calendar_busy_aggregate(
+    slug: str,
+    from_date: date = Query(..., alias="from"),
+    days: int = Query(14, ge=1, le=31),
+    db: Session = Depends(get_db),
+):
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
+    if not complex_:
+        raise HTTPException(status_code=404, detail="Complejo no encontrado")
+    busy: list[BusyIntervalOut] = []
+    for i in range(days):
+        d = from_date + timedelta(days=i)
+        for s_start, s_end in fully_busy_intervals_for_complex(db, complex_, d):
+            busy.append(
+                BusyIntervalOut(
+                    starts_at=s_start,
+                    ends_at=s_end,
+                    status="unavailable",
+                    kind="aggregate",
+                )
+            )
+    return CalendarBusyOut(busy=busy)
+
+
+@router.get("/complexes/{slug}/courts-availability", response_model=list[CourtAvailabilityOut])
+def courts_availability(
+    slug: str,
+    starts_at: datetime = Query(...),
+    ends_at: datetime = Query(...),
+    db: Session = Depends(get_db),
+):
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
+    if not complex_:
+        raise HTTPException(status_code=404, detail="Complejo no encontrado")
+    courts = published_courts(db, complex_)
+    result: list[CourtAvailabilityOut] = []
+    for court in courts:
+        ok = is_booking_allowed(
+            db, complex_, court.id, starts_at, ends_at, for_public=True
+        )
+        result.append(
+            CourtAvailabilityOut(court_id=court.id, name=court.name, available=ok)
+        )
+    return result
 
 
 @router.get("/complexes/{slug}/calendar", response_model=list[CalendarDayOut])

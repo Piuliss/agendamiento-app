@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api, type CartItem, type ComplexPublic } from '../api';
+import { api, type CartItem, type ComplexPublic, type CourtAvailability } from '../api';
 import { BookingCalendar } from '../components/BookingCalendar';
+
+function toLocalIso(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+}
 
 export function PublicBooking() {
   const { slug = 'demo' } = useParams();
   const [searchParams] = useSearchParams();
   const [complex, setComplex] = useState<ComplexPublic | null>(null);
-  const [courtId, setCourtId] = useState<number | null>(null);
   const [busy, setBusy] = useState<{ starts_at: string; ends_at: string }[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [modal, setModal] = useState<{ start: Date; end: Date } | null>(null);
+  const [courtOptions, setCourtOptions] = useState<CourtAvailability[]>([]);
+  const [loadingCourts, setLoadingCourts] = useState(false);
+  const [selectedCourtId, setSelectedCourtId] = useState<number | null>(null);
   const [contactOpen, setContactOpen] = useState(false);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -20,53 +27,61 @@ export function PublicBooking() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.getComplex(slug).then((c) => {
-      setComplex(c);
-      if (c.courts[0]) setCourtId(c.courts[0].id);
-    }).catch(() => setError('Complejo no encontrado'));
+    api.getComplex(slug).then(setComplex).catch(() => setError('Complejo no encontrado'));
   }, [slug]);
-
-  useEffect(() => {
-    const mode = searchParams.get('captura');
-    if (!mode || !complex || !courtId) return;
-    const start = new Date();
-    start.setDate(start.getDate() + 2);
-    start.setHours(18, 0, 0, 0);
-    const end = new Date(start);
-    end.setHours(19, 0, 0, 0);
-    const court_name = complex.courts.find((c) => c.id === courtId)?.name ?? '';
-    if (mode === 'modal' || mode === 'cart') {
-      setModal({ start, end });
-    }
-    if (mode === 'cart') {
-      setCart([
-        {
-          court_id: courtId,
-          court_name,
-          date: start.toISOString().slice(0, 10),
-          starts_at: start.toISOString().slice(0, 19),
-          ends_at: end.toISOString().slice(0, 19),
-        },
-      ]);
-    }
-  }, [searchParams, complex, courtId]);
 
   const fromIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
   useEffect(() => {
-    if (!courtId) return;
-    api.getCalendar(slug, courtId, fromIso).then((days) => {
-      const all = days.flatMap((d) =>
-        d.busy.map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at })),
-      );
-      setBusy(all);
+    api.getCalendarBusy(slug, fromIso).then((r) => {
+      setBusy(r.busy.map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at })));
     });
-  }, [slug, courtId, fromIso]);
+  }, [slug, fromIso]);
 
-  const courtName = useMemo(
-    () => complex?.courts.find((c) => c.id === courtId)?.name ?? '',
-    [complex, courtId],
-  );
+  useEffect(() => {
+    const mode = searchParams.get('captura');
+    if (!mode || !complex) return;
+    const start = new Date(2026, 9, 20, 18, 0, 0, 0);
+    const end = new Date(2026, 9, 20, 19, 0, 0, 0);
+    if (mode === 'modal' || mode === 'cart') {
+      setModal({ start, end });
+    }
+    if (mode === 'cart' && complex.courts[0]) {
+      setCart([
+        {
+          court_id: complex.courts[0].id,
+          court_name: complex.courts[0].name,
+          date: start.toISOString().slice(0, 10),
+          starts_at: toLocalIso(start),
+          ends_at: toLocalIso(end),
+        },
+      ]);
+    }
+  }, [searchParams, complex]);
+
+  useEffect(() => {
+    if (!modal) {
+      setCourtOptions([]);
+      setSelectedCourtId(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingCourts(true);
+    const starts = toLocalIso(modal.start);
+    const ends = toLocalIso(modal.end);
+    api.getCourtsAvailability(slug, starts, ends).then((rows) => {
+      if (cancelled) return;
+      setCourtOptions(rows);
+      const firstFree = rows.find((r) => r.available);
+      setSelectedCourtId(firstFree?.court_id ?? null);
+      setLoadingCourts(false);
+    }).catch(() => {
+      if (!cancelled) setLoadingCourts(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [modal, slug]);
 
   function fmtTime(d: Date) {
     return d.toTimeString().slice(0, 5);
@@ -83,15 +98,18 @@ export function PublicBooking() {
     setModal({ ...modal, end });
   }
 
+  const availableCourts = courtOptions.filter((c) => c.available);
+
   function addToCart() {
-    if (!modal || !courtId) return;
-    const date = modal.start.toISOString().slice(0, 10);
+    if (!modal || !selectedCourtId) return;
+    const court = courtOptions.find((c) => c.court_id === selectedCourtId);
+    if (!court?.available) return;
     const item: CartItem = {
-      court_id: courtId,
-      court_name: courtName,
-      date,
-      starts_at: modal.start.toISOString().slice(0, 19),
-      ends_at: modal.end.toISOString().slice(0, 19),
+      court_id: selectedCourtId,
+      court_name: court.name,
+      date: modal.start.toISOString().slice(0, 10),
+      starts_at: toLocalIso(modal.start),
+      ends_at: toLocalIso(modal.end),
     };
     setCart((c) => [...c, item]);
     setModal(null);
@@ -144,20 +162,12 @@ export function PublicBooking() {
       <header className="hero-header">
         <h1>{complex.name}</h1>
         <p>
-          Calendario semanal/mensual (FullCalendar). Horario público desde {ps}; la franja anterior es solo profesores.
+          Elegí día y horario en el calendario. Después elegís la cancha libre en ese turno.
+          Horario público desde {ps}.
         </p>
         <Link to={`/profesor/${slug}`}>Acceso profesores</Link>
       </header>
       {error && <p className="error">{error}</p>}
-
-      <label>
-        Cancha publicada
-        <select value={courtId ?? ''} onChange={(e) => setCourtId(Number(e.target.value))}>
-          {complex.courts.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </label>
 
       <BookingCalendar
         busy={busy}
@@ -188,9 +198,11 @@ export function PublicBooking() {
 
       {modal && (
         <div className="modal-backdrop">
-          <div className="modal card form-grid">
-            <h3>Confirmar rango</h3>
-            <p>{modal.start.toLocaleDateString('es-PY')} {fmtTime(modal.start)} – {fmtTime(modal.end)}</p>
+          <div className="modal card form-grid court-modal">
+            <h3>Elegir cancha</h3>
+            <p className="full range-summary">
+              {modal.start.toLocaleDateString('es-PY')} · {fmtTime(modal.start)} – {fmtTime(modal.end)}
+            </p>
             <label>
               Inicio
               <input
@@ -227,9 +239,37 @@ export function PublicBooking() {
                 onChange={(e) => setDurationHours(Number(e.target.value))}
               />
             </label>
+
+            <div className="full court-pick">
+              <h4>Canchas</h4>
+              {loadingCourts && <p>Consultando disponibilidad…</p>}
+              {!loadingCourts && availableCourts.length === 0 && (
+                <p className="error">No hay canchas libres en este horario. Probá otro rango.</p>
+              )}
+              {!loadingCourts && courtOptions.map((c) => (
+                <label key={c.court_id} className={`court-option ${c.available ? '' : 'disabled'}`}>
+                  <input
+                    type="radio"
+                    name="court"
+                    disabled={!c.available}
+                    checked={selectedCourtId === c.court_id}
+                    onChange={() => setSelectedCourtId(c.court_id)}
+                  />
+                  {c.name} {c.available ? '(disponible)' : '(ocupada)'}
+                </label>
+              ))}
+            </div>
+
             <div className="modal-actions full">
               <button type="button" className="btn ghost" onClick={() => setModal(null)}>Cancelar</button>
-              <button type="button" className="btn primary" onClick={addToCart}>Agregar al carrito</button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={!selectedCourtId || availableCourts.length === 0}
+                onClick={addToCart}
+              >
+                Agregar al carrito
+              </button>
             </div>
           </div>
         </div>

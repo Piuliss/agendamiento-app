@@ -51,6 +51,16 @@ class CalendarDayOut(BaseModel):
     busy: list[BusyIntervalOut]
 
 
+class CalendarBusyOut(BaseModel):
+    busy: list[BusyIntervalOut]
+
+
+class CourtAvailabilityOut(BaseModel):
+    court_id: int
+    name: str
+    available: bool
+
+
 class CartItemIn(BaseModel):
     court_id: int
     starts_at: datetime

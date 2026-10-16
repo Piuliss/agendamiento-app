@@ -154,3 +154,52 @@ def assert_booking_allowed(
                 continue
         if bookings_overlap(starts_at, ends_at, b_start, b_end):
             raise ValueError("El horario ya no está disponible")
+
+
+def is_booking_allowed(
+    db: Session,
+    complex_: Complex,
+    court_id: int,
+    starts_at: datetime,
+    ends_at: datetime,
+    *,
+    for_public: bool = True,
+) -> bool:
+    try:
+        assert_booking_allowed(
+            db, complex_, court_id, starts_at, ends_at, for_public=for_public
+        )
+        return True
+    except ValueError:
+        return False
+
+
+def fully_busy_intervals_for_complex(
+    db: Session,
+    complex_: Complex,
+    target_day: date,
+    slot_minutes: int = 30,
+) -> list[tuple[datetime, datetime]]:
+    """Intervalos en los que ninguna cancha publicada está libre."""
+    from app.services.complex_rules import published_courts
+
+    courts = published_courts(db, complex_)
+    if not courts:
+        return []
+    settings = get_settings()
+    slot_minutes = settings.slot_duration_minutes or slot_minutes
+    slots = generate_day_slots(
+        target_day,
+        complex_.public_hours_start,
+        complex_.hours_end,
+        slot_minutes,
+    )
+    fully_busy: list[tuple[datetime, datetime]] = []
+    for s_start, s_end in slots:
+        if any(
+            is_booking_allowed(db, complex_, court.id, s_start, s_end, for_public=True)
+            for court in courts
+        ):
+            continue
+        fully_busy.append((s_start, s_end))
+    return fully_busy
