@@ -114,15 +114,26 @@ def assert_booking_allowed(
     starts_at: datetime,
     ends_at: datetime,
     exclude_booking_id: int | None = None,
+    *,
+    for_public: bool = True,
 ) -> None:
+    from app.services.complex_rules import is_court_published
+    from app.services.schedule import assert_in_public_window, assert_in_teacher_window
+
     if starts_at >= ends_at:
         raise ValueError("Horario inválido")
     court = db.get(Court, court_id)
     if not court or court.complex_id != complex_.id or not court.active:
         raise ValueError("Cancha no disponible")
+    if for_public and not is_court_published(db, complex_, court_id):
+        raise ValueError("Cancha no publicada")
     day = starts_at.date()
     if starts_at.time() < complex_.hours_start or ends_at.time() > complex_.hours_end:
         raise ValueError("Fuera del horario de atención")
+    if for_public:
+        assert_in_public_window(complex_, starts_at, ends_at)
+    else:
+        assert_in_teacher_window(complex_, starts_at, ends_at)
     busy = get_busy_intervals_for_court(
         db,
         complex_.id,

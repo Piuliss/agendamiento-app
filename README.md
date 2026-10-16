@@ -41,7 +41,8 @@ npm run dev
 
 UI: `http://localhost:5173`
 
-- Reserva pública de ejemplo: `http://localhost:5173/r/demo`
+- Reserva pública (FullCalendar, carrito, WhatsApp único): `http://localhost:5173/r/demo`
+- Profesores: `http://localhost:5173/profesor/demo` (demo: `profesor` / `profesor`)
 - Panel: `http://localhost:5173/admin/login`
 
 ## Tests

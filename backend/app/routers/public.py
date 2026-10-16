@@ -1,42 +1,59 @@
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.config import get_settings
 from app.database import get_db
 from app.models import Booking, BookingStatus, Complex, Court
 from app.schemas import (
-    AvailabilityDayOut,
-    BookingCreate,
-    BookingPublicOut,
+    BusyIntervalOut,
+    CalendarDayOut,
+    CartBookingCreate,
+    CartBookingOut,
     ComplexPublicOut,
-    SlotOut,
+    ComplexScheduleOut,
+    CourtOut,
 )
-from app.services.availability import assert_booking_allowed, available_slots_for_court
-from app.services.booking_outputs import ensure_booking_outputs
+from app.services.availability import get_busy_intervals_for_court
+from app.services.batch_booking import create_public_cart
+from app.services.complex_rules import published_courts
 
 router = APIRouter(prefix="/api/public", tags=["public"])
 
 
+def _complex_schedule(complex_: Complex) -> ComplexScheduleOut:
+    return ComplexScheduleOut(
+        hours_start=complex_.hours_start,
+        hours_end=complex_.hours_end,
+        public_hours_start=complex_.public_hours_start,
+        teacher_hours_start=complex_.hours_start,
+        teacher_hours_end=complex_.public_hours_start,
+        public_hours_start_field=complex_.public_hours_start,
+    )
+
+
 @router.get("/complexes/{slug}", response_model=ComplexPublicOut)
 def get_complex_public(slug: str, db: Session = Depends(get_db)):
-    complex_ = db.scalar(
-        select(Complex)
-        .options(joinedload(Complex.courts))
-        .where(Complex.slug == slug)
-    )
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
     if not complex_:
         raise HTTPException(status_code=404, detail="Complejo no encontrado")
-    courts = [c for c in complex_.courts if c.active]
-    data = ComplexPublicOut.model_validate(complex_)
-    data.courts = courts
-    return data
+    courts = published_courts(db, complex_)
+    return ComplexPublicOut(
+        id=complex_.id,
+        name=complex_.name,
+        slug=complex_.slug,
+        whatsapp_number=complex_.whatsapp_number,
+        hours_start=complex_.hours_start,
+        hours_end=complex_.hours_end,
+        public_hours_start=complex_.public_hours_start,
+        schedule=_complex_schedule(complex_),
+        courts=[CourtOut.model_validate(c) for c in courts],
+    )
 
 
-@router.get("/complexes/{slug}/availability", response_model=list[AvailabilityDayOut])
-def get_availability(
+@router.get("/complexes/{slug}/calendar", response_model=list[CalendarDayOut])
+def get_calendar_busy(
     slug: str,
     court_id: int = Query(...),
     from_date: date = Query(..., alias="from"),
@@ -47,75 +64,59 @@ def get_availability(
     if not complex_:
         raise HTTPException(status_code=404, detail="Complejo no encontrado")
     court = db.get(Court, court_id)
-    if not court or court.complex_id != complex_.id or not court.active:
+    if not court or court.complex_id != complex_.id:
         raise HTTPException(status_code=404, detail="Cancha no encontrada")
-    result: list[AvailabilityDayOut] = []
+    result: list[CalendarDayOut] = []
     for i in range(days):
         d = from_date + timedelta(days=i)
-        slots = available_slots_for_court(db, complex_, court, d)
-        result.append(
-            AvailabilityDayOut(
-                date=d,
-                court_id=court_id,
-                slots=[SlotOut(starts_at=s, ends_at=e) for s, e in slots],
+        day_start = datetime.combine(d, time.min)
+        day_end = datetime.combine(d, time.max)
+        bookings = db.scalars(
+            select(Booking).where(
+                Booking.complex_id == complex_.id,
+                Booking.court_id == court_id,
+                Booking.starts_at < day_end,
+                Booking.ends_at > day_start,
+                Booking.status.in_((BookingStatus.PENDING, BookingStatus.CONFIRMED)),
             )
-        )
+        ).all()
+        busy: list[BusyIntervalOut] = []
+        for b in bookings:
+            busy.append(
+                BusyIntervalOut(
+                    starts_at=b.starts_at,
+                    ends_at=b.ends_at,
+                    status=b.status.value,
+                    kind=b.kind.value,
+                )
+            )
+        result.append(CalendarDayOut(date=d, court_id=court_id, busy=busy))
     return result
 
 
-@router.post("/complexes/{slug}/bookings", response_model=BookingPublicOut)
-async def create_booking(slug: str, body: BookingCreate, db: Session = Depends(get_db)):
-    settings = get_settings()
+@router.post("/complexes/{slug}/cart", response_model=CartBookingOut)
+async def create_cart(slug: str, body: CartBookingCreate, db: Session = Depends(get_db)):
     complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
     if not complex_:
         raise HTTPException(status_code=404, detail="Complejo no encontrado")
-    ends_at = body.starts_at + timedelta(minutes=settings.slot_duration_minutes)
+    items = [(it.court_id, it.starts_at, it.ends_at) for it in body.items]
+    contact = {
+        "name": body.customer_name.strip(),
+        "phone": body.customer_phone.strip(),
+        "email": (body.customer_email or "").strip(),
+        "notes": (body.customer_notes or "").strip(),
+    }
     try:
-        assert_booking_allowed(db, complex_, body.court_id, body.starts_at, ends_at)
+        bookings, wa, msg = await create_public_cart(db, complex_, items, contact)
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
-    court = db.get(Court, body.court_id)
-    if not court:
-        raise HTTPException(status_code=404, detail="Cancha no encontrada")
-    booking = Booking(
-        complex_id=complex_.id,
-        court_id=body.court_id,
-        starts_at=body.starts_at,
-        ends_at=ends_at,
-        customer_name=body.customer_name.strip(),
-        customer_phone=body.customer_phone.strip(),
-        customer_email=(body.customer_email or "").strip(),
-        customer_notes=(body.customer_notes or "").strip(),
-        status=BookingStatus.PENDING,
-        calendar_tentative=True,
-    )
-    db.add(booking)
-    db.commit()
-    db.refresh(booking)
-
-    try:
-        outputs = await ensure_booking_outputs(db, complex_, booking, court)
-    except ValueError as e:
-        db.delete(booking)
-        db.commit()
-        raise HTTPException(status_code=400, detail=str(e))
-
-    return BookingPublicOut(
-        id=booking.id,
-        court_id=booking.court_id,
-        court_name=court.name,
-        starts_at=booking.starts_at,
-        ends_at=booking.ends_at,
-        customer_name=booking.customer_name,
-        customer_phone=booking.customer_phone,
-        customer_email=booking.customer_email,
-        status=booking.status,
-        whatsapp_url=outputs.whatsapp_url,
-        whatsapp_message=outputs.whatsapp_message,
-        calendar_mode=outputs.calendar_mode,
-        calendar_tentative=outputs.calendar_tentative,
+    return CartBookingOut(
+        booking_ids=[b.id for b in bookings],
+        items_count=len(bookings),
+        whatsapp_url=wa,
+        whatsapp_message=msg,
         message=(
-            "Tu reserva quedó registrada como pendiente de confirmación oficial. "
-            "Se creó un evento tentativo en el calendario y podés contactar al complejo por WhatsApp."
+            "Tus reservas quedaron pendientes de confirmación oficial. "
+            "Cada turno tiene evento tentativo en calendario. Abrí WhatsApp para enviar el detalle."
         ),
     )

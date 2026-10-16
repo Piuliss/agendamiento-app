@@ -25,6 +25,8 @@ def session_bundle():
         whatsapp_number="595981111111",
         hours_start=time(8, 0),
         hours_end=time(22, 0),
+        public_hours_start=time(17, 0),
+        published_courts_count=1,
     )
     session.add(complex_)
     session.flush()
@@ -37,7 +39,7 @@ def session_bundle():
 @pytest.mark.asyncio
 async def test_booking_always_creates_local_calendar_and_whatsapp(session_bundle):
     session, complex_, court = session_bundle
-    start = datetime.utcnow().replace(hour=15, minute=0, second=0, microsecond=0) + timedelta(days=2)
+    start = datetime.utcnow().replace(hour=18, minute=0, second=0, microsecond=0) + timedelta(days=2)
     booking = Booking(
         complex_id=complex_.id,
         court_id=court.id,

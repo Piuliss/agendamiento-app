@@ -1,0 +1,52 @@
+@import '@fullcalendar/react/skeleton.css';
+@import '@fullcalendar/react/themes/classic/theme.css';
+@import '@fullcalendar/react/themes/classic/palette.css';
+
+.fc-wrap {
+  background: #fff;
+  border-radius: 12px;
+  padding: 0.5rem;
+  margin: 1rem 0;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+}
+
+.page.wide {
+  max-width: 1100px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(15 23 42 / 45%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.modal {
+  width: min(420px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.cart ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: #15803d;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  text-decoration: underline;
+}

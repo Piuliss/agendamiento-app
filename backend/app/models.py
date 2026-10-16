@@ -23,6 +23,11 @@ class BookingStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
+class BookingKind(str, enum.Enum):
+    PUBLIC = "public"
+    TEACHER = "teacher"
+
+
 class Organization(Base):
     __tablename__ = "organizations"
 
@@ -44,6 +49,8 @@ class Complex(Base):
     contact_email: Mapped[str] = mapped_column(String(200), default="")
     hours_start: Mapped[time] = mapped_column(Time, default=time(8, 0))
     hours_end: Mapped[time] = mapped_column(Time, default=time(22, 0))
+    public_hours_start: Mapped[time] = mapped_column(Time, default=time(17, 0))
+    published_courts_count: Mapped[int] = mapped_column(Integer, default=1)
     google_calendar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     google_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     google_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -61,6 +68,7 @@ class Court(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     complex_id: Mapped[int] = mapped_column(ForeignKey("complexes.id"), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(default=True)
 
     complex: Mapped["Complex"] = relationship(back_populates="courts")
@@ -81,6 +89,11 @@ class Booking(Base):
     customer_phone: Mapped[str] = mapped_column(String(40), nullable=False)
     customer_email: Mapped[str] = mapped_column(String(200), default="")
     customer_notes: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[BookingKind] = mapped_column(
+        Enum(BookingKind), default=BookingKind.PUBLIC, nullable=False
+    )
+    student_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    teacher_id: Mapped[int | None] = mapped_column(ForeignKey("teachers.id"), nullable=True)
     status: Mapped[BookingStatus] = mapped_column(
         Enum(BookingStatus), default=BookingStatus.PENDING, nullable=False
     )
@@ -91,6 +104,19 @@ class Booking(Base):
 
     complex: Mapped["Complex"] = relationship(back_populates="bookings")
     court: Mapped["Court"] = relationship(back_populates="bookings")
+
+
+class Teacher(Base):
+    __tablename__ = "teachers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    complex_id: Mapped[int] = mapped_column(ForeignKey("complexes.id"), nullable=False)
+    username: Mapped[str] = mapped_column(String(80), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    active: Mapped[bool] = mapped_column(default=True)
+
+    __table_args__ = (UniqueConstraint("complex_id", "username", name="uq_teacher_username"),)
 
 
 class CalendarBlock(Base):

@@ -1,6 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
-export type Court = { id: number; name: string; active: boolean };
+export type Court = { id: number; name: string; active: boolean; sort_order?: number };
 
 export type ComplexPublic = {
   id: number;
@@ -9,26 +9,39 @@ export type ComplexPublic = {
   whatsapp_number: string;
   hours_start: string;
   hours_end: string;
+  public_hours_start: string;
+  schedule: {
+    hours_start: string;
+    hours_end: string;
+    public_hours_start: string;
+    teacher_hours_start: string;
+    teacher_hours_end: string;
+  };
   courts: Court[];
 };
 
-export type Slot = { starts_at: string; ends_at: string };
-
-export type AvailabilityDay = { date: string; court_id: number; slots: Slot[] };
-
-export type BookingResult = {
-  id: number;
-  court_name: string;
+export type BusyInterval = {
   starts_at: string;
   ends_at: string;
-  customer_name: string;
-  customer_phone: string;
-  customer_email: string;
   status: string;
+  kind: string;
+};
+
+export type CalendarDay = { date: string; court_id: number; busy: BusyInterval[] };
+
+export type CartItem = {
+  court_id: number;
+  court_name: string;
+  date: string;
+  starts_at: string;
+  ends_at: string;
+};
+
+export type CartResult = {
+  booking_ids: number[];
+  items_count: number;
   whatsapp_url: string;
   whatsapp_message: string;
-  calendar_mode: string;
-  calendar_tentative: boolean;
   message: string;
 };
 
@@ -41,6 +54,8 @@ export type BookingAdmin = {
   customer_phone: string;
   customer_email: string;
   customer_notes: string;
+  kind: string;
+  student_count: number | null;
   status: string;
   calendar_tentative: boolean;
   notes: string;
@@ -54,6 +69,8 @@ export type ComplexAdmin = {
   contact_email: string;
   hours_start: string;
   hours_end: string;
+  public_hours_start: string;
+  published_courts_count: number;
   google_connected: boolean;
   courts: Court[];
 };
@@ -68,19 +85,20 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail ?? 'Error de servidor');
+    const detail = typeof err.detail === 'string' ? err.detail : 'Error de servidor';
+    throw new Error(detail);
   }
   return res.json() as Promise<T>;
 }
 
 export const api = {
   getComplex: (slug: string) => request<ComplexPublic>(`/api/public/complexes/${slug}`),
-  getAvailability: (slug: string, courtId: number, from: string) =>
-    request<AvailabilityDay[]>(
-      `/api/public/complexes/${slug}/availability?court_id=${courtId}&from=${from}&days=7`,
+  getCalendar: (slug: string, courtId: number, from: string) =>
+    request<CalendarDay[]>(
+      `/api/public/complexes/${slug}/calendar?court_id=${courtId}&from=${from}&days=14`,
     ),
-  createBooking: (slug: string, body: Record<string, unknown>) =>
-    request<BookingResult>(`/api/public/complexes/${slug}/bookings`, {
+  submitCart: (slug: string, body: Record<string, unknown>) =>
+    request<CartResult>(`/api/public/complexes/${slug}/cart`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -88,6 +106,23 @@ export const api = {
     request<{ access_token: string }>('/api/admin/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
+    }),
+  teacherLogin: (username: string, password: string) =>
+    request<{ access_token: string }>('/api/teacher/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  teacherContext: (token: string) =>
+    request<{
+      complex: ComplexPublic;
+      teacher: { full_name: string };
+      courts: Court[];
+    }>('/api/teacher/complex', { headers: { Authorization: `Bearer ${token}` } }),
+  teacherBooking: (token: string, body: Record<string, unknown>) =>
+    request<{ id: number; message: string }>('/api/teacher/bookings', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
     }),
   adminComplex: (token: string) =>
     request<ComplexAdmin>('/api/admin/complex', {

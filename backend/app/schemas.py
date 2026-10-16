@@ -10,8 +10,18 @@ class CourtOut(BaseModel):
     id: int
     name: str
     active: bool
+    sort_order: int = 0
 
     model_config = {"from_attributes": True}
+
+
+class ComplexScheduleOut(BaseModel):
+    hours_start: time
+    hours_end: time
+    public_hours_start: time
+    teacher_hours_start: time
+    teacher_hours_end: time
+    public_hours_start_field: time
 
 
 class ComplexPublicOut(BaseModel):
@@ -21,9 +31,46 @@ class ComplexPublicOut(BaseModel):
     whatsapp_number: str
     hours_start: time
     hours_end: time
+    public_hours_start: time
+    schedule: ComplexScheduleOut
     courts: list[CourtOut]
 
     model_config = {"from_attributes": True}
+
+
+class BusyIntervalOut(BaseModel):
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+    kind: str
+
+
+class CalendarDayOut(BaseModel):
+    date: date
+    court_id: int
+    busy: list[BusyIntervalOut]
+
+
+class CartItemIn(BaseModel):
+    court_id: int
+    starts_at: datetime
+    ends_at: datetime
+
+
+class CartBookingCreate(BaseModel):
+    items: list[CartItemIn] = Field(min_length=1)
+    customer_name: str = Field(min_length=2, max_length=200)
+    customer_phone: str = Field(min_length=6, max_length=40)
+    customer_email: str = Field(default="", max_length=200)
+    customer_notes: str = Field(default="", max_length=500)
+
+
+class CartBookingOut(BaseModel):
+    booking_ids: list[int]
+    items_count: int
+    whatsapp_url: str
+    whatsapp_message: str
+    message: str
 
 
 class SlotOut(BaseModel):
@@ -40,6 +87,7 @@ class AvailabilityDayOut(BaseModel):
 class BookingCreate(BaseModel):
     court_id: int
     starts_at: datetime
+    ends_at: datetime | None = None
     customer_name: str = Field(min_length=2, max_length=200)
     customer_phone: str = Field(min_length=6, max_length=40)
     customer_email: str = Field(default="", max_length=200)
@@ -83,6 +131,8 @@ class ComplexAdminOut(BaseModel):
     contact_email: str
     hours_start: time
     hours_end: time
+    public_hours_start: time
+    published_courts_count: int
     google_calendar_id: str | None
     google_connected: bool
     courts: list[CourtOut]
@@ -96,6 +146,8 @@ class ComplexUpdate(BaseModel):
     contact_email: str | None = None
     hours_start: time | None = None
     hours_end: time | None = None
+    public_hours_start: time | None = None
+    published_courts_count: int | None = None
 
 
 class CourtCreate(BaseModel):
@@ -105,6 +157,7 @@ class CourtCreate(BaseModel):
 class CourtUpdate(BaseModel):
     name: str | None = None
     active: bool | None = None
+    sort_order: int | None = None
 
 
 class BookingAdminOut(BaseModel):
@@ -117,6 +170,8 @@ class BookingAdminOut(BaseModel):
     customer_phone: str
     customer_email: str
     customer_notes: str
+    kind: str
+    student_count: int | None
     status: BookingStatus
     calendar_tentative: bool
     notes: str
@@ -127,6 +182,28 @@ class BookingAdminOut(BaseModel):
 class BookingAction(BaseModel):
     action: Literal["confirm", "reject"]
     notes: str = ""
+
+
+class TeacherBookingCreate(BaseModel):
+    court_id: int
+    starts_at: datetime
+    ends_at: datetime
+    student_count: int = Field(ge=1, le=50)
+
+
+class TeacherOut(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class TeacherCreate(BaseModel):
+    username: str
+    password: str
+    full_name: str
 
 
 class GoogleStatusOut(BaseModel):

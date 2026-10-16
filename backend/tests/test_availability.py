@@ -30,6 +30,8 @@ def db_session():
         slug="test",
         hours_start=time(9, 0),
         hours_end=time(12, 0),
+        public_hours_start=time(9, 0),
+        published_courts_count=1,
     )
     session.add(complex_)
     session.flush()
@@ -99,6 +101,7 @@ def test_assert_booking_allowed_rejects_overlap(db_session):
             court.id,
             start,
             start + timedelta(hours=1),
+            for_public=True,
         )
 
 

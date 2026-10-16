@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, SessionLocal, engine
-from app.routers import admin, google_oauth, public
+from app.routers import admin, google_oauth, public, teacher
 from app.seed import ensure_demo_data
 
 
@@ -33,6 +33,7 @@ app.add_middleware(
 
 app.include_router(public.router)
 app.include_router(admin.router)
+app.include_router(teacher.router)
 app.include_router(google_oauth.router)
 
 

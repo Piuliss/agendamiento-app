@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import create_access_token, get_current_admin, verify_admin_password
 from app.config import get_settings
 from app.database import get_db
-from app.models import Booking, BookingStatus, Complex, Court
+from app.auth import hash_password
+from app.models import Booking, BookingStatus, Complex, Court, Teacher
 from app.schemas import (
     BookingAction,
     BookingAdminOut,
@@ -19,6 +20,8 @@ from app.schemas import (
     GoogleStatusOut,
     IntegrationStatusOut,
     LoginRequest,
+    TeacherCreate,
+    TeacherOut,
     TokenOut,
 )
 from app.services.booking_outputs import sync_calendar_after_admin_action
@@ -60,6 +63,8 @@ def get_complex_admin(db: Session = Depends(get_db), _: str = Depends(get_curren
         contact_email=complex_.contact_email,
         hours_start=complex_.hours_start,
         hours_end=complex_.hours_end,
+        public_hours_start=complex_.public_hours_start,
+        published_courts_count=complex_.published_courts_count,
         google_calendar_id=complex_.google_calendar_id,
         google_connected=complex_has_google(complex_),
         courts=[CourtOut.model_validate(c) for c in complex_.courts],
@@ -142,6 +147,8 @@ def list_bookings(
             customer_phone=b.customer_phone,
             customer_email=b.customer_email,
             customer_notes=b.customer_notes,
+            kind=b.kind.value,
+            student_count=b.student_count,
             status=b.status,
             calendar_tentative=b.calendar_tentative,
             notes=b.notes,
@@ -183,10 +190,39 @@ async def booking_action(
         customer_phone=booking.customer_phone,
         customer_email=booking.customer_email,
         customer_notes=booking.customer_notes,
+        kind=booking.kind.value,
+        student_count=booking.student_count,
         status=booking.status,
         calendar_tentative=booking.calendar_tentative,
         notes=booking.notes,
     )
+
+
+@router.get("/teachers", response_model=list[TeacherOut])
+def list_teachers(db: Session = Depends(get_db), _: str = Depends(get_current_admin)):
+    complex_ = _default_complex(db)
+    rows = db.scalars(select(Teacher).where(Teacher.complex_id == complex_.id)).all()
+    return rows
+
+
+@router.post("/teachers", response_model=TeacherOut)
+def create_teacher(
+    body: TeacherCreate,
+    db: Session = Depends(get_db),
+    _: str = Depends(get_current_admin),
+):
+    complex_ = _default_complex(db)
+    teacher = Teacher(
+        complex_id=complex_.id,
+        username=body.username.strip(),
+        password_hash=hash_password(body.password),
+        full_name=body.full_name.strip(),
+        active=True,
+    )
+    db.add(teacher)
+    db.commit()
+    db.refresh(teacher)
+    return teacher
 
 
 @router.get("/integrations", response_model=IntegrationStatusOut)

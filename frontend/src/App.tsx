@@ -6,6 +6,7 @@ import { AdminReservas } from './pages/AdminReservas';
 import { AdminConfig } from './pages/AdminConfig';
 import { AdminIntegraciones } from './pages/AdminIntegraciones';
 import { PublicBooking } from './pages/PublicBooking';
+import { TeacherBooking } from './pages/TeacherBooking';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <Routes>
         <Route path="/" element={<Navigate to="/r/demo" replace />} />
         <Route path="/r/:slug" element={<PublicBooking />} />
+        <Route path="/profesor/:slug" element={<TeacherBooking />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<Navigate to="reservas" replace />} />
