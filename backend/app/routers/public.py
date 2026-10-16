@@ -8,8 +8,10 @@ from app.database import get_db
 from app.models import Booking, BookingStatus, Complex, Court
 from app.schemas import (
     BusyIntervalOut,
+    CalendarBookingEventOut,
     CalendarBusyOut,
     CalendarDayOut,
+    CalendarEventsOut,
     CartBookingCreate,
     CartBookingOut,
     ComplexPublicOut,
@@ -52,6 +54,49 @@ def get_complex_public(slug: str, db: Session = Depends(get_db)):
         schedule=_complex_schedule(complex_),
         courts=[CourtOut.model_validate(c) for c in courts],
     )
+
+
+@router.get("/complexes/{slug}/calendar-events", response_model=CalendarEventsOut)
+def get_calendar_events(
+    slug: str,
+    from_date: date = Query(..., alias="from"),
+    days: int = Query(14, ge=1, le=31),
+    db: Session = Depends(get_db),
+):
+    complex_ = db.scalar(select(Complex).where(Complex.slug == slug))
+    if not complex_:
+        raise HTTPException(status_code=404, detail="Complejo no encontrado")
+    court_ids = [c.id for c in published_courts(db, complex_)]
+    if not court_ids:
+        return CalendarEventsOut(events=[])
+    end_bound = from_date + timedelta(days=days)
+    rows = db.execute(
+        select(Booking, Court.name)
+        .join(Court, Booking.court_id == Court.id)
+        .where(
+            Booking.complex_id == complex_.id,
+            Booking.court_id.in_(court_ids),
+            Booking.status.in_((BookingStatus.PENDING, BookingStatus.CONFIRMED)),
+            Booking.starts_at < datetime.combine(end_bound, time.max),
+            Booking.ends_at > datetime.combine(from_date, time.min),
+        )
+        .order_by(Booking.starts_at)
+    ).all()
+    events: list[CalendarBookingEventOut] = []
+    for booking, court_name in rows:
+        title = booking.customer_name or "Reserva"
+        events.append(
+            CalendarBookingEventOut(
+                id=booking.id,
+                court_id=booking.court_id,
+                court_name=court_name,
+                starts_at=booking.starts_at,
+                ends_at=booking.ends_at,
+                status=booking.status.value,
+                label=f"{court_name} · {title}",
+            )
+        )
+    return CalendarEventsOut(events=events)
 
 
 @router.get("/complexes/{slug}/calendar-busy", response_model=CalendarBusyOut)

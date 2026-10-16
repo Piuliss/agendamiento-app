@@ -10,6 +10,69 @@
   box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
 }
 
+.court-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.9rem;
+}
+
+.court-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.court-legend .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgb(15 23 42 / 15%);
+}
+
+.court-legend .swatch.now {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.fc-courts-calendar .fc-event {
+  border-left-width: 4px !important;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  overflow: hidden;
+}
+
+.fc-courts-calendar .fc-timegrid-event-harness {
+  margin-right: 1px;
+}
+
+.fc-courts-calendar .fc-now-indicator-line {
+  border-color: #ef4444;
+  border-width: 2px;
+  z-index: 4;
+}
+
+.fc-courts-calendar .fc-now-indicator-arrow {
+  border-color: #ef4444;
+  border-width: 6px;
+}
+
+.fc-courts-calendar .fc-timegrid-now-indicator-container {
+  overflow: visible;
+}
+
+.fc-courts-calendar .fc-timegrid-now-indicator-line::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+}
+
 .page.wide {
   max-width: 1100px;
 }

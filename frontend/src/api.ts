@@ -31,6 +31,16 @@ export type CalendarDay = { date: string; court_id: number; busy: BusyInterval[]
 
 export type CourtAvailability = { court_id: number; name: string; available: boolean };
 
+export type CalendarBookingEvent = {
+  id: number;
+  court_id: number;
+  court_name: string;
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  label: string;
+};
+
 export type CartItem = {
   court_id: number;
   court_name: string;
@@ -95,6 +105,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   getComplex: (slug: string) => request<ComplexPublic>(`/api/public/complexes/${slug}`),
+  getCalendarEvents: (slug: string, from: string) =>
+    request<{ events: CalendarBookingEvent[] }>(
+      `/api/public/complexes/${slug}/calendar-events?from=${from}&days=21`,
+    ),
   getCalendarBusy: (slug: string, from: string) =>
     request<{ busy: BusyInterval[] }>(
       `/api/public/complexes/${slug}/calendar-busy?from=${from}&days=14`,

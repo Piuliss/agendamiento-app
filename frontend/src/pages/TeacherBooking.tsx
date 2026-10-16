@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, type CalendarBookingEvent } from '../api';
 import { BookingCalendar } from '../components/BookingCalendar';
+import { colorForCourtIndex } from '../lib/courtColors';
+import { timePartsInAsuncion } from '../lib/timezone';
 
 export function TeacherBooking() {
   const { slug = 'demo' } = useParams();
@@ -12,7 +14,7 @@ export function TeacherBooking() {
   const [password, setPassword] = useState('profesor');
   const [ctx, setCtx] = useState<Awaited<ReturnType<typeof api.teacherContext>> | null>(null);
   const [courtId, setCourtId] = useState<number | null>(null);
-  const [busy, setBusy] = useState<{ starts_at: string; ends_at: string }[]>([]);
+  const [bookingEvents, setBookingEvents] = useState<CalendarBookingEvent[]>([]);
   const [modal, setModal] = useState<{ start: Date; end: Date } | null>(null);
   const [students, setStudents] = useState(4);
   const [msg, setMsg] = useState('');
@@ -35,20 +37,34 @@ export function TeacherBooking() {
     });
   }, [token, tokenKey]);
 
-  const fromIso = new Date().toISOString().slice(0, 10);
+  const fromIso = useMemo(() => timePartsInAsuncion(new Date()).dateKey, []);
+
+  const courtColors = useMemo(() => {
+    const map: Record<number, ReturnType<typeof colorForCourtIndex>> = {};
+    ctx?.courts.forEach((c, i) => {
+      map[c.id] = colorForCourtIndex(i);
+    });
+    return map;
+  }, [ctx]);
+
   useEffect(() => {
-    if (!courtId || !slug) return;
-    api.getCalendar(slug, courtId, fromIso).then((days) => {
-      setBusy(days.flatMap((d) => d.busy.map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at }))));
+    if (!slug) return;
+    api.getCalendarEvents(slug, fromIso).then((r) => {
+      setBookingEvents(
+        courtId ? r.events.filter((e) => e.court_id === courtId) : r.events,
+      );
     });
   }, [slug, courtId, fromIso]);
 
   async function confirm() {
     if (!modal || !courtId || !token) return;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const p = timePartsInAsuncion(modal.start);
+    const pe = timePartsInAsuncion(modal.end);
     const res = await api.teacherBooking(token, {
       court_id: courtId,
-      starts_at: modal.start.toISOString().slice(0, 19),
-      ends_at: modal.end.toISOString().slice(0, 19),
+      starts_at: `${p.dateKey}T${pad(p.hours)}:${pad(p.minutes)}:00`,
+      ends_at: `${pe.dateKey}T${pad(pe.hours)}:${pad(pe.minutes)}:00`,
       student_count: students,
     });
     setMsg(res.message);
@@ -85,7 +101,8 @@ export function TeacherBooking() {
         {ctx.courts.map((co) => <option key={co.id} value={co.id}>{co.name}</option>)}
       </select>
       <BookingCalendar
-        busy={busy}
+        bookingEvents={bookingEvents}
+        courtColors={courtColors}
         selectableFrom={hs}
         selectableTo={te}
         slotMinTime={`${hs}:00`}

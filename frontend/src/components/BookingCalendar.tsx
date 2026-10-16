@@ -5,42 +5,62 @@ import timeGridPlugin from '@fullcalendar/react/timegrid';
 import classicThemePlugin from '@fullcalendar/react/themes/classic';
 import FullCalendar from '@fullcalendar/react';
 import type { DateSelectInfo } from '@fullcalendar/react';
+import type { CourtColor } from '../lib/courtColors';
+import { CALENDAR_TZ, minutesInAsuncion, sameCalendarDayInAsuncion } from '../lib/timezone';
 
-export type BusyBlock = { starts_at: string; ends_at: string };
+export type CalendarBookingEvent = {
+  id: number;
+  court_id: number;
+  court_name: string;
+  starts_at: string;
+  ends_at: string;
+  label: string;
+};
 
 type Props = {
-  busy: BusyBlock[];
+  bookingEvents: CalendarBookingEvent[];
+  courtColors: Record<number, CourtColor>;
   selectableFrom: string;
   selectableTo: string;
   slotMinTime: string;
   slotMaxTime: string;
+  initialDate?: string;
   onSelectRange: (start: Date, end: Date) => void;
 };
 
 export function BookingCalendar({
-  busy,
+  bookingEvents,
+  courtColors,
   selectableFrom,
   selectableTo,
   slotMinTime,
   slotMaxTime,
+  initialDate,
   onSelectRange,
 }: Props) {
-  const events = busy.map((b, i) => ({
-    id: `busy-${i}`,
-    start: b.starts_at,
-    end: b.ends_at,
-    display: 'background',
-    backgroundColor: '#cbd5e1',
-  }));
+  const events = bookingEvents.map((ev) => {
+    const color = courtColors[ev.court_id];
+    return {
+      id: String(ev.id),
+      start: ev.starts_at,
+      end: ev.ends_at,
+      title: ev.label,
+      backgroundColor: color?.bg ?? '#cbd5e1',
+      borderColor: color?.border ?? '#64748b',
+      textColor: color?.text ?? '#0f172a',
+      classNames: [`court-event-${ev.court_id}`],
+      extendedProps: { courtId: ev.court_id },
+    };
+  });
 
   function inWindow(start: Date, end: Date) {
     const [fh, fm] = selectableFrom.split(':').map(Number);
     const [th, tm] = selectableTo.split(':').map(Number);
-    const startMin = start.getHours() * 60 + start.getMinutes();
-    const endMin = end.getHours() * 60 + end.getMinutes();
     const fromMin = fh * 60 + (fm || 0);
     const toMin = th * 60 + (tm || 0);
-    if (start.toDateString() !== end.toDateString()) return false;
+    const startMin = minutesInAsuncion(start);
+    const endMin = minutesInAsuncion(end);
+    if (!sameCalendarDayInAsuncion(start, end)) return false;
     return startMin >= fromMin && endMin <= toMin && end > start;
   }
 
@@ -54,11 +74,14 @@ export function BookingCalendar({
   }
 
   return (
-    <div className="fc-wrap">
+    <div className="fc-wrap fc-courts-calendar">
       <FullCalendar
+        key={initialDate ?? 'default-week'}
         plugins={[classicThemePlugin, dayGridPlugin, timeGridPlugin, interactionPlugin]}
         locale={esLocale}
+        timeZone={CALENDAR_TZ}
         initialView="timeGridWeek"
+        {...(initialDate ? { initialDate } : {})}
         headerToolbar={{
           left: 'prev,next today',
           center: 'title',
@@ -71,6 +94,8 @@ export function BookingCalendar({
         allDaySlot={true}
         height={640}
         expandRows={true}
+        slotEventOverlap={true}
+        eventOverlap={true}
         selectable
         selectMirror
         selectOverlap={false}

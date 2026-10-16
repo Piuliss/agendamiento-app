@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api, type CartItem, type ComplexPublic, type CourtAvailability } from '../api';
+import { api, type CalendarBookingEvent, type CartItem, type ComplexPublic, type CourtAvailability } from '../api';
 import { BookingCalendar } from '../components/BookingCalendar';
+import { CourtLegend } from '../components/CourtLegend';
+import { colorForCourtIndex } from '../lib/courtColors';
+import { timePartsInAsuncion } from '../lib/timezone';
 
-function toLocalIso(d: Date): string {
+function toAsuncionIso(d: Date): string {
+  const p = timePartsInAsuncion(d);
   const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  return `${p.dateKey}T${pad(p.hours)}:${pad(p.minutes)}:00`;
 }
 
 export function PublicBooking() {
   const { slug = 'demo' } = useParams();
   const [searchParams] = useSearchParams();
   const [complex, setComplex] = useState<ComplexPublic | null>(null);
-  const [busy, setBusy] = useState<{ starts_at: string; ends_at: string }[]>([]);
+  const [bookingEvents, setBookingEvents] = useState<CalendarBookingEvent[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [modal, setModal] = useState<{ start: Date; end: Date } | null>(null);
   const [courtOptions, setCourtOptions] = useState<CourtAvailability[]>([]);
@@ -30,12 +34,21 @@ export function PublicBooking() {
     api.getComplex(slug).then(setComplex).catch(() => setError('Complejo no encontrado'));
   }, [slug]);
 
-  const fromIso = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const fromIso = useMemo(() => {
+    const p = timePartsInAsuncion(new Date());
+    return p.dateKey;
+  }, []);
+
+  const courtColors = useMemo(() => {
+    const map: Record<number, ReturnType<typeof colorForCourtIndex>> = {};
+    complex?.courts.forEach((c, i) => {
+      map[c.id] = colorForCourtIndex(i);
+    });
+    return map;
+  }, [complex]);
 
   useEffect(() => {
-    api.getCalendarBusy(slug, fromIso).then((r) => {
-      setBusy(r.busy.map((b) => ({ starts_at: b.starts_at, ends_at: b.ends_at })));
-    });
+    api.getCalendarEvents(slug, fromIso).then((r) => setBookingEvents(r.events));
   }, [slug, fromIso]);
 
   useEffect(() => {
@@ -52,8 +65,8 @@ export function PublicBooking() {
           court_id: complex.courts[0].id,
           court_name: complex.courts[0].name,
           date: start.toISOString().slice(0, 10),
-          starts_at: toLocalIso(start),
-          ends_at: toLocalIso(end),
+          starts_at: toAsuncionIso(start),
+          ends_at: toAsuncionIso(end),
         },
       ]);
     }
@@ -67,8 +80,8 @@ export function PublicBooking() {
     }
     let cancelled = false;
     setLoadingCourts(true);
-    const starts = toLocalIso(modal.start);
-    const ends = toLocalIso(modal.end);
+    const starts = toAsuncionIso(modal.start);
+    const ends = toAsuncionIso(modal.end);
     api.getCourtsAvailability(slug, starts, ends).then((rows) => {
       if (cancelled) return;
       setCourtOptions(rows);
@@ -108,8 +121,8 @@ export function PublicBooking() {
       court_id: selectedCourtId,
       court_name: court.name,
       date: modal.start.toISOString().slice(0, 10),
-      starts_at: toLocalIso(modal.start),
-      ends_at: toLocalIso(modal.end),
+      starts_at: toAsuncionIso(modal.start),
+      ends_at: toAsuncionIso(modal.end),
     };
     setCart((c) => [...c, item]);
     setModal(null);
@@ -169,12 +182,21 @@ export function PublicBooking() {
       </header>
       {error && <p className="error">{error}</p>}
 
+      <CourtLegend
+        items={(complex.courts ?? []).map((c, i) => ({
+          courtId: c.id,
+          name: c.name,
+          color: colorForCourtIndex(i),
+        }))}
+      />
       <BookingCalendar
-        busy={busy}
+        bookingEvents={bookingEvents}
+        courtColors={courtColors}
         selectableFrom={ps}
         selectableTo={he}
         slotMinTime={`${hs}:00`}
         slotMaxTime={`${he}:00`}
+        initialDate={searchParams.get('semana') ?? undefined}
         onSelectRange={(start, end) => setModal({ start, end })}
       />
 
